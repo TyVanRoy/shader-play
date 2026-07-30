@@ -1,0 +1,207 @@
+# Interactive Wall — System Architecture
+
+**Status:** design draft
+**Scope:** runtime-agnostic. Describes what the system is and what contracts hold it together. Implementation-specific detail lives in `threejs-prototype.md`.
+
+---
+
+## 1. The installation
+
+A projector throws roughly 10ft × 8ft onto a wall. An infrared depth camera watches the wall surface and converts contact into touch events. Those events drive a program that renders back onto the same wall. People walk up, touch, and the wall responds.
+
+Two operators (us) are present during the show and reserve the right to drive it manually.
+
+## 2. The core problem
+
+Any single piece — however clever the shader or simulation — has a discovery curve. Someone approaches, experiments, understands the rule, and leaves. That's fine and expected. The response is not to build one unfathomable piece, but to treat the wall as a **set** of pieces with **transitions between them**, the way a DJ set is not a song.
+
+This reframes the design question. The interesting engineering is not in any individual piece; it's in the contract that lets arbitrary pieces be sequenced and blended. The transition *is* the content.
+
+## 3. Vocabulary
+
+- **Piece** — one visual work. A 2D fragment shader, a GPU simulation, a 3D scene. The unit of authorship.
+- **Sequencer** — the host program. Owns the display, the clock, the touch stream, and decides which pieces are live.
+- **Mix** — a transition between two pieces. Has a normalized parameter `m ∈ [0,1]`.
+- **Touch frame** — one snapshot of all active contacts, delivered every render frame.
+
+## 4. Mixing: three tiers
+
+Ordered by increasing intimacy and decreasing generality.
+
+### Tier 1 — Output blend
+Render A and B to separate buffers, combine per-pixel. Always available, works between any two pieces, costs one extra full-res render. Reads as a video crossfade.
+
+Beyond a plain lerp, the VJ toolkit applies: additive, difference, luma key, or **UV displacement** — use A's luminance to warp the coordinates B is sampled at, so one dissolves *through* the other rather than merely on top of it. Displacement is the one that doesn't look like a crossfade.
+
+### Tier 2 — Parameter blend
+If A and B are the same shader family differing only in uniforms, lerp the uniforms instead of the pixels. Cheap and seamless, but only works within a family. Useful for generating variation, not for connecting unrelated pieces.
+
+### Tier 3 — State blend
+The one worth building toward.
+
+Simulation-type pieces (fluid, reaction-diffusion, particle fields, wave equations) all carry a ping-pong state texture that persists across frames. If pieces agree on a **state format** — say RGBA float16 where channels mean roughly `velocity.xy / density / age` — then a transition can swap the *update rule* while leaving the state continuous.
+
+The wall does not fade. The physics change under the person's hand while the thing they just drew persists and starts behaving differently. This is the effect that has no equivalent in video, and it's the reason the state format is worth standardizing early even if the first release doesn't use it.
+
+### Why this matters combinatorially
+Twelve pieces yield 144 ordered transitions. If the mix parameter can **park** — hold at 0.4 indefinitely rather than always running to completion — the reachable state space is effectively unbounded. Nobody sees the same wall twice, without generating a single new piece.
+
+## 5. Bookends: the fallback contract
+
+Every piece implements an **intro** and an **outro**: a self-directed opening and closing sequence.
+
+With bookends, the sequencer doesn't need to understand anything about either piece to switch between them. That makes bookends the mandatory contract and state blend an **optional declared capability**:
+
+```
+if A.exposes(stateFormat) and B.accepts(stateFormat):
+    state_blend(A, B)
+else:
+    A.outro() ⟶ overlap ⟶ B.intro()
+```
+
+Ship v1 on bookends alone — nothing can go badly wrong. Add state blend for the subset of pairs where it'll be spectacular, without holding the system hostage to it.
+
+### Three rules for bookends
+
+1. **Overlap them.** Don't serialize outro-then-intro. Overlap by 1–2 seconds. Both sources are already warm and rendering, so it's free, it kills the dead beat, and it yields a crossfade more interesting than a cut.
+
+2. **Don't go to black.** A dark wall reads as broken. Close to a low-energy attractor — a dim drifting field, slow noise, something still breathing.
+
+3. **Keep touch alive through the entire transition.** Even if the outro responds only faintly, someone with a hand on the wall must feel that it's still listening. The moment the wall stops responding is the moment people leave.
+
+## 6. Example pieces
+
+The system is deliberately indifferent to what a piece *is* — that's the point of the contract. But the contracts above are easier to evaluate against concrete work, and these four are a useful spread because each stresses a different part of the design.
+
+### GridWarp — *no state*
+A line grid, displaced by proximity to touch points. Contact pulls or pushes the lattice; the distortion relaxes back over a second or two.
+
+The minimum viable piece. Nothing persists between frames, so it participates only in bookends and tier-1 blends. Its job is to prove the contract is small enough that a new piece is a short afternoon's work rather than a project — if GridWarp is hard to write, the contract is wrong. It's also the natural first piece for whoever is learning the system, and a good baseline for latency testing since there's nothing between touch and response.
+
+### ReactionDiffusion — *state: `field-v1`*
+Gray-Scott. Touch injects chemical into the field; the pattern grows, branches, and consumes itself.
+
+Slow characteristic velocity and a strong visual identity. Good as a resting state — it stays alive and interesting with nobody touching it, which is exactly what the "don't go to black" rule needs from an outro.
+
+### FluidLite — *state: `field-v1`*
+Advection with touch as force injection. Contact pushes dye around; the wall keeps moving after the hand leaves.
+
+Fast velocities, immediately legible to anyone who touches it. The most reliably crowd-pleasing of the four, and the one most likely to want tuning against real latency.
+
+### Particles3D — *no state (in the shared format)*
+A GPU particle system in an actual 3D scene, with touch raycast from a virtual camera through the wall plane.
+
+Proves the 3D path and, more importantly, the claim in §7 that the same touch array can be read as UV by flat pieces and as rays by dimensional ones. It carries its own simulation state, but not in `field-v1` — which is the useful demonstration that a piece can be stateful internally and still decline to participate in tier-3 blending.
+
+### What the set is chosen to test
+
+**RD ↔ FluidLite is the hard state-blend pair**, deliberately. Two rules sharing a format but with badly mismatched timescales is the case most likely to produce mush at `m = 0.5`. If that transition can be made to work, easier pairs are free; if it can't, tier 3 needs rethinking before the library grows.
+
+**GridWarp ↔ Particles3D is the hard bookend pair** — flat and dimensional, nothing in common, no shared state possible. Whatever makes that transition feel intentional is what the bookend design actually has to deliver.
+
+Four pieces yield twelve ordered transitions, which is enough to tell whether the sequencing idea holds up before committing to a larger library.
+
+## 7. Input contract
+
+Touch is universal across pieces:
+
+```
+struct TouchPoint {
+    vec2 uv;       // wall-normalized position, [0,1]
+    vec2 velocity; // uv units per second
+    float radius;  // or pressure/force proxy
+    float age;     // seconds since contact began
+    int   id;      // stable across frames
+}
+```
+
+A fixed-size array (start with N=16) plus an active count, uploaded as a uniform block or a small data texture each frame.
+
+**During a mix, both pieces receive the identical touch frame.** No blending happens on the input side — it's already handled downstream in state or output. This is what keeps the contract simple.
+
+Pieces interpret the same array differently. 2D pieces consume `uv` directly. 3D pieces raycast from a virtual camera through the wall plane into the scene. Same data, different reading.
+
+Emit **TUIO** from the camera side to stay framework-agnostic; anything downstream can consume it, and it decouples camera work from renderer work entirely.
+
+## 8. Transition triggers
+
+The trigger must be a **module**, not a hardcoded rule. The sequencer exposes "advance to next piece" and anything can call it:
+
+- **Manual** — operator hotkey or phone. Always available, always overrides.
+- **Timer** — fixed or randomized interval.
+- **Crowd-derived** — the depth camera already sees the room. Falling engagement (fewer contacts, longer since last touch, fewer bodies in frame) triggers a change to re-attract attention. Rising engagement suggests holding the current piece.
+
+Crowd-triggered transitions are the interesting case and the reason to keep the trigger interface narrow: the depth camera is already there, and engagement metrics are nearly free to compute from data being captured anyway.
+
+## 9. Latency budget
+
+**Touch-to-photon under ~50ms.** Above that the wall feels dead regardless of visual quality; the illusion of direct manipulation depends entirely on this.
+
+Budget contributors: camera exposure and readout, blob detection, transport, render, compositor queue, projector input lag. Projector lag is often the silent offender — check the spec sheet and disable every "enhancement" mode.
+
+## 10. GPU budget
+
+**A transition is peak load**, not a spike to be absorbed. During a mix you are rendering A, rendering B, and compositing. Design the steady-state budget as `A + B + composite`, and treat single-piece rendering as headroom rather than the target.
+
+If a piece can't fit in half the frame budget, it can't participate in mixes.
+
+## 11. Color
+
+Standardize on **linear float16 throughout the chain, tonemap once at the end.**
+
+The failure mode is quiet: one piece rendering in linear with HDR tonemapping, another in sRGB, and the blend develops a gamma wobble in the middle that reads as an unexplained brightness dip at exactly the moment you most want the transition to feel smooth.
+
+## 12. Runtime options
+
+Bookends make the sequencer a switcher, and a switcher doesn't need to understand its sources. **Pieces therefore don't have to share a runtime.** The contract reduces to: expose a shared-texture output, accept a start/stop message, consume a touch stream.
+
+| Runtime | Strengths | Costs |
+|---|---|---|
+| **Three.js / WebGL** | Fast iteration, GLSL native, ping-pong feedback trivial, easy to share and version | Not a shipping target for a long-running install; WebGL2 feature ceiling |
+| **TouchDesigner** | Already *is* this rig (TOP chains, feedback, IR input well-trodden); live tweaking during a show; fastest 2D authoring | Proprietary, licensing, harder to version-control, less conventional for an artist-partner to learn |
+| **Unity** | Real 3D, asset pipeline, editor for a non-programmer partner, one project to ship | HLSL — every Shadertoy port needs translation; multipass/feedback is RenderTexture wrangling; heavy for 2D field work |
+| **Godot / Unreal** | Viable; Godot is light and GLSL-adjacent | Less installation-art precedent, fewer worked examples |
+
+**Assessment:** if the library skews toward 2D fields and feedback — which the grid / fluid / reaction-diffusion instinct suggests — TouchDesigner is dramatically faster to author in. Unity is a good runtime for the 3D pieces specifically, not the obvious host for everything. A plausible production split is **TD as host and switcher, Unity as one source among many.**
+
+Prototype in Three.js regardless. It's the cheapest place to find out whether the mixing model actually feels good, and that answer transfers to any of the above.
+
+## 13. Integrating a heavyweight 3D source
+
+If a 3D engine participates as a separate process:
+
+**Transport.** Spout (Windows) or Syphon (macOS) — GPU-side shared texture handles, effectively zero-copy. KlakSpout is the standard Unity plugin. Avoid NDI unless crossing machines; it's compressed and adds latency you can't afford on top of the 50ms budget. Run the engine headless/offscreen — the sequencer owns the display and vsync; the engine is only a texture source.
+
+**The hard part:** a 3D engine is opaque to the state-blend layer. No ping-pong buffer to lerp, no update rule to swap. Left alone it can only ever participate as a Tier 1 crossfade. Two mitigations, worth doing both:
+
+1. **Send the mix parameter in.** OSC the blend value to the engine and let the scene choreograph its own entrance and exit — geometry assembling from particles, camera pulling back, materials dissolving. It stops being a video source being faded and becomes a participant that knows it's arriving or leaving.
+
+2. **Emit depth alongside color.** Then the 3D content acts as a boundary condition in the 2D field — fluid flows around the silhouette, reaction-diffusion is masked by it, particles collide with it. Genuine state-level coupling without a shared state format, and the blend an audience won't be able to account for.
+
+**Frame sync.** Two independent render loops means frames arrive when they arrive. A stale 3D frame against a live 60fps field is visible during a blend. Either sync explicitly or accept and hide it in the transition design.
+
+**Warm start.** Keep the engine rendering at all times, even at mix weight zero. Cold-starting mid-show is how you get a black wall for four seconds.
+
+**Isolation upside.** Process separation means an engine crash doesn't take down the installation — the sequencer sees a dead sender and holds or falls back.
+
+**Blender is not a runtime.** No frame budget guarantees, no clean live texture-out. And materials/shader nodes do **not** export. What crosses over is geometry, rigs, animation, baked texture maps, and simulation caches (Alembic, VDB). Anything procedural in Blender's node graph must be rebuilt in the target engine's shader system or baked to textures first. Treat Blender strictly as an asset authoring tool.
+
+## 14. Procedural / AI-generated pieces
+
+Tempting, and the slop concern is real but secondary. The practical blockers come first:
+
+- A generated shader won't honor the state contract.
+- It won't reliably hold 60fps.
+- Debugging GLSL live in front of an audience is miserable.
+
+**Mutation within known-good template families** is the version that works: perturb coefficients, swap noise functions, recombine terms within a structure already validated for performance and contract compliance. Combinatorial novelty with a floor on quality.
+
+Note also that parked mixes (§4) already produce unbounded variation from a fixed handcrafted library. Exhaust that before reaching for generation.
+
+## 15. Open questions
+
+- State format specifics — which channels, what ranges, float16 vs float32.
+- Whether pieces declare a *compatibility class* rather than a single global state format.
+- Engagement metrics: what actually signals "the crowd is losing interest" in depth data.
+- Whether the mix parameter should ever be exposed to the audience.
+- Calibration workflow: projector-to-camera homography, and how often it drifts in a real space.
