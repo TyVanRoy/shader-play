@@ -4,7 +4,7 @@ A prototype of the sequencing and mixing model in [`docs/architecture.md`](docs/
 built to the plan in [`docs/threejs-prototype.md`](docs/threejs-prototype.md).
 What's next lives in [`docs/ideas.md`](docs/ideas.md).
 
-No projector, no depth camera. A canvas, mouse and multi-touch input, and four
+No projector, no depth camera. A canvas, mouse and multi-touch input, and six
 3D pieces that the sequencer transitions between.
 
 ```
@@ -27,6 +27,96 @@ on 20.14. Bump both together if you upgrade Node.
 
 ---
 
+## Picking this up
+
+**Current state:** six pieces, all committed, `npm run smoke` green — 0 console
+errors, 60fps throughout, every transition path and blend mode exercised.
+
+### Immediately next: instanced geometry as a third reading of `points-v1`
+
+A piece that points the **existing** `InstancedRenderer` at an **existing**
+rule's state. Same particles, same physics, drawn as solid tumbling geometry
+instead of motion streaks.
+
+The point is that nothing re-simulates across the transition. Two similar rules
+crossfading is a decent demonstration of a shared state format; streaks becoming
+solids while the particles demonstrably keep their positions and history is a
+much sharper one, because an audience can see that nothing restarted.
+
+**This is small, because the hard parts already exist:**
+
+- `src/pieces/InstancedRenderer.js` — `makeInstancedVisual({ texSize, stride, palette, useGrid })`
+  is already generic over `points-v1`. It handles tier-3 ownership for opaque
+  geometry (unowned instances scale away rather than dim) and the bookend
+  scatter. It knows nothing about what rule produced the state, by design.
+- `ParticleBase._buildVisual()` is the override point. `Birds.js` is the worked
+  example — its override is about fifteen lines.
+
+**The work:**
+
+1. A piece class extending `ParticleBase` that reuses an existing step shader
+   and overrides `_buildVisual()`.
+2. A mesh that isn't the bird chevron. `dartGeometry()` is the template to copy;
+   note the comments in it about outward-oriented normals and why the silhouette
+   matters at ~20px.
+3. Pass `useGrid: false` — banking reads the neighbourhood grid, and Birds is
+   the only piece that has one. Without it instances fly level, which is correct
+   for tumbling debris.
+4. Register in `src/registry.js`, then update the `1`–`6` key range in the
+   controls table below, the piece table, and the key presses in
+   `tools/smoke.mjs`.
+
+**Open decisions, recommendation first:**
+
+- *Which rule to reuse?* **CurlFlow's.** Identical physics to a piece already in
+  the set makes the point sharpest — a transition where only the *look* changes.
+  Giving it its own rule would muddy exactly what's being demonstrated.
+- *Stride?* Birds uses 10 (3,686 instances). Chunky solids probably want fewer
+  and bigger — try 20–30 and look at it.
+- *`stateSupport`?* Leave at the 1.0 default unless the rule is structured. It
+  only affects how tier-3 ownership is partitioned; see `architecture.md` §4.
+
+### How to work on this
+
+The loop is **edit → `npm run smoke` → look at `/tmp/wall-shots`**. A bundler
+build catches almost nothing here. Every real failure so far has been a GLSL
+compile error, a blown frame budget, or a transition that renders fine and looks
+wrong — and the third kind is only findable by looking at the screenshots.
+
+Things that have already cost time:
+
+- **GLSL ES 3.00 reserved words.** `active`, `patch`, `half`, `sample`,
+  `filter`, `input`, `output`. Two of those got into shared chunks as a struct
+  member and a function parameter, and produced a black screen that the bundler
+  build was perfectly happy with.
+- **Headless Chrome gets the real GPU** here — ANGLE/Metal, not SwiftShader —
+  and exposes `EXT_disjoint_timer_query_webgl2`, so the smoke test's GPU numbers
+  are real numbers. `HEADED=1 npm run smoke` if you want to watch it.
+- **Don't trust CPU frame time.** It cheerfully reported 1800fps while the GPU
+  was saturated. The HUD graphs GPU time against the 8.3ms mixing budget
+  instead, and that is the number to tune against.
+- **In scripts use `seq.park(m)`, not the `p` key** — the key toggles, so calling
+  it twice in a loop resumes the mix and lets it run to completion.
+- **Bookend effects are suppressed during a state blend** and must stay that
+  way. If you add a new renderer, gate its dispersion and brightness envelope on
+  `uStateBlend` the way the existing two do, or you will reintroduce a bug that
+  looks like a simulation instability. See `threejs-prototype.md` §6.
+
+### Where things are written down
+
+| | |
+|---|---|
+| `docs/architecture.md` | Runtime-agnostic system design. §4 carries the tier-3 findings, all marked **[prototype]**; §15 is what's still open. |
+| `docs/threejs-prototype.md` | This build specifically. §6 has the state-blend war stories, §13 answers the questions the prototype was built to answer. |
+| `docs/ideas.md` | Backlog with statuses. The next task is **Pieces §3**; everything else is `PARKED` or `OPEN`, and there's a `Yours` section for new ideas. |
+| this README | How to run it, what the pieces are, what the contract is. |
+
+Findings marked **[prototype]** or **[built]** in the design docs were added by
+building the thing; the unmarked text is the original design intent and should
+be treated as untested unless it says otherwise.
+
+---
+
 ## What this is testing
 
 The wall is a **set** of pieces with **transitions between them**. The
@@ -41,7 +131,6 @@ Everything below exists to answer those.
 
 ## Controls
 
-| | |
 | key | action | what it actually does |
 |---|---|---|
 | drag | touch the wall | Multi-touch works — a trackpad or touchscreen gives you several contacts at once, up to 16. Each contact carries position, smoothed velocity, radius and age, and pieces read all four. A swipe is not the same input as a press-and-hold. |

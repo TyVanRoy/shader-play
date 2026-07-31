@@ -121,7 +121,7 @@ renderFrom(ctx, stateTextures, target)   // NEW — draw a reading of foreign st
 
 Also: `render(ctx, target)` takes a real render target **always**, never `null`. Pieces never draw to the canvas. That makes the single-colour-conversion rule in §8 hold by construction instead of by discipline, and it cost nothing.
 
-Everything else held. Four pieces, no other changes.
+Everything else held through four pieces. Two pieces later it needed one more thing, and a smaller one: `_buildVisual()` as an override point, so a piece can supply its own renderer instead of the default streaks. That is arguably not a change to the *contract* at all — the four mandatory methods are untouched — but it is a change to the base class every stateful piece inherits from, and it turned out to be the most useful hour spent on the piece layer. See the Birds notes below.
 
 `bookend` pieces are unaffected by all of this — `SDFField` implements exactly the four mandatory methods and nothing else, and it was about an hour's work. The contract is small enough.
 
