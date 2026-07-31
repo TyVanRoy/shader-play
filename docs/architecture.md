@@ -68,6 +68,26 @@ Three consequences for the contract:
 
 - **A piece needs a declared hint about how its state occupies space,** for the partition choice above. This is cheap — one number, defaulting to "fills the volume", set only by pieces that don't.
 
+### [prototype] Rule and renderer are independent axes
+
+The obvious reading of "a piece" is one thing: a rule and the look it produces. Three rules in, that turned out to be two things, and separating them was the single highest-leverage change made to the piece layer.
+
+A renderer that reads a state format and knows nothing about what produced it can be pointed at *any* rule sharing that format. So the same particles can be drawn as motion streaks or as lit solid geometry, and — because the state is genuinely shared — a transition can change **only the renderer** while the simulation continues untouched. Nothing teleports, nothing restarts, and the audience can see that nothing did.
+
+That is a better demonstration of what a state format buys you than two similar rules crossfading, and it is nearly free once the second renderer exists. Worth building the piece layer so that rule and renderer are separately swappable from the start rather than discovering it later.
+
+Two consequences that are not obvious until you have an opaque renderer:
+
+- **Ownership has to be expressed per renderer, not once globally.** The tier-3 trick of showing only the elements your rule governs works by dimming for an additive renderer — but you cannot dim a solid out of existence. A half-brightness solid reads as a dark object, not an absent one, so an opaque renderer has to scale unowned elements away instead and boost the survivors to compensate for the compositor's weighting. Same contract, different mechanism.
+
+- **A piece may render only a subset of the state it simulates.** Simulation completeness and render density are separate concerns: the shared state must stay whole or the blend breaks, but 36k hard silhouettes read as a cloud rather than as a flock. Drawing every Nth element is both the right visual answer and, as it turns out, the cheapest piece in the set.
+
+### [prototype] Population-driven rules are a distinct class, and they cost extra
+
+Every rule described in §6 is **field-driven**: an element's acceleration is a function of where it is, so you could simulate one element in isolation and get the right answer. Flocking is not. A bird's behaviour depends on its neighbours, which means the rule needs a neighbourhood query, which at any real population size means an acceleration structure — a scatter into a coarse grid, or the equivalent.
+
+This matters for planning rather than for the contract. The state format doesn't change, and the piece interface doesn't change; but a population-driven piece carries an extra pass and an extra buffer that a field-driven one doesn't, and that is invisible if you budget by counting pieces. Worth flagging when a piece is proposed, because "add flocking" sounds like the same size of job as "add another force field" and isn't.
+
 ### [prototype] Bookends and state blending do not compose
 
 They are **alternative** transition mechanisms, not layers to be stacked, and stacking them is the same mistake as fading pieces externally (§5) wearing a different costume.

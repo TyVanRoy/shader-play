@@ -15,8 +15,13 @@ import blendStateFrag from './blend-state.frag?raw';
 import curlflowStep from './curlflow.step.frag?raw';
 import orbitalsStep from './orbitals.step.frag?raw';
 import attractorsStep from './attractors.step.frag?raw';
+import birdsStep from './birds.step.frag?raw';
+import birdsGridVert from './birds.grid.vert?raw';
+import birdsGridFrag from './birds.grid.frag?raw';
 import pointsVert from './points.vert?raw';
 import pointsFrag from './points.frag?raw';
+import instancedVert from './instanced.vert?raw';
+import instancedFrag from './instanced.frag?raw';
 import seedFrag from './seed.frag?raw';
 
 import sdfFrag from './sdf.frag?raw';
@@ -48,8 +53,13 @@ export const shaders = {
   curlflowStep,
   orbitalsStep,
   attractorsStep,
+  birdsStep,
+  birdsGridVert,
+  birdsGridFrag,
   pointsVert,
   pointsFrag,
+  instancedVert,
+  instancedFrag,
   seedFrag,
   sdfFrag,
   meshwarpStep,

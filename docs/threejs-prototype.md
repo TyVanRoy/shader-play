@@ -308,6 +308,20 @@ Suppressing it also visibly improved the original CurlFlow ↔ Orbitals blend, w
 
 **And a corollary: pieces sharing state must share a camera.** They draw the same particles, so two cameras lerped together ghost every streak against itself. `ParticleBase` falls back to a neutral shared motion profile whenever `ctx.blend.active`. This was invisible on diffuse clouds and obvious the moment there was an edge to double.
 
+### [built] Adding a renderer, not just a rule
+
+**Birds** was the first piece to need something other than the streak renderer, and splitting `ParticleBase._buildVisual()` into an override point took about ten minutes and paid for itself immediately: `InstancedRenderer` reads `points-v1` and knows nothing about what wrote it, so it can be pointed at any rule in the family. That's what makes "the same particles, drawn as solids" a nearly free piece rather than a project.
+
+Four things went wrong building it, all worth knowing before writing another renderer.
+
+**The orientation frame must reference the wall normal, not world up.** Build a bird's basis the textbook way — `right = cross(forward, worldUp)` — and, because these things fly in the plane of the wall, every bird's wingspan ends up pointing along the view axis. You see the entire flock edge-on as meaningless slivers. Referencing `vec3(0,0,1)` instead lays the wings out in the plane of flight and shows the planform. The bug looked like bad geometry for a while; it was a bad frame.
+
+**Hand-authored winding will be inconsistent, and fixing it in the shader is a trap.** With `DoubleSide` and a `gl_FrontFacing` normal flip, every face is forced to point at the viewer — which is exactly the shape of a fix that removes the symptom and all the shading contrast with it. The flock went uniformly flat and cream-coloured. Orient each face's normal away from the hull centroid at build time, swap two vertices so the winding agrees, and use `FrontSide`. Then back-face culling is free and the lighting reads.
+
+**A hard boundary is the wrong shape for a flock.** Alignment makes the population commit to a heading, that heading eventually leaves the wall, and a stiff wall just stops them — so they pile into the corners in dense knots while the middle empties. Needed a gentle always-on pull toward centre plus a boundary that ramps in early, so they *turn* before arriving.
+
+**Silhouette detail matters far more than expected at this size.** A bird is about twenty pixels. A flat-topped triangle reads as paper confetti; adding a raised spine (two top faces at different angles, so each bird has a light side and a dark side) and sweeping the wingtips *behind* the tail root into a chevron is what makes it read as a bird. Both changes are four numbers in a vertex list and they mattered more than any shading work.
+
 ---
 
 ## 7. Compositor (tier 1)

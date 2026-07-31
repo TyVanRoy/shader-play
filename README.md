@@ -49,7 +49,7 @@ Everything below exists to answer those.
 | `←` `→` | scrub the mix | Steps `m` by ±0.05, or ±0.01 with `shift`. **Parks the transition automatically**, so the first arrow press freezes it and every press after that moves it by hand. This is the main tool for judging a transition; nothing else lets you sit inside one. |
 | `p` | park / resume | Freezes the mix wherever it currently is, or releases it. Only meaningful during a transition. `PARKED` is a real sequencer state, not a debug pause — the wall keeps simulating, keeps responding to touch, and holds the blended state indefinitely. |
 | `esc` | cancel | Abandons the transition and snaps back to the piece you were leaving. Note it returns to **A**, not B — it's an undo, not a skip. |
-| `1`–`5` | jump to a piece | Starts a transition to that specific piece rather than the next one in sequence. Cancels any transition already running first. Pressing the number of the piece you're already on does nothing. Use this to reach a specific pair — `1`→`2` and `2`→`3` are the two state-blend pairs, `4`→`5` the hard bookend pair. |
+| `1`–`6` | jump to a piece | Starts a transition to that specific piece rather than the next one in sequence. Cancels any transition already running first. Pressing the number of the piece you're already on does nothing. Use this to reach a specific pair — `1`–`4` are the state-blend family, `5`→`6` the hard bookend pair. `1` then `4` is the one to see first. |
 | `b` | cycle blend mode | Steps through `lerp → additive → difference → luma-key → displace`. **Which setting it changes depends on the live path**: during a state blend it cycles `stateMode`, otherwise `mode`. The compositor keeps the two separately because displace is right for bookends and wrong for state blends, so this key deliberately won't let you cross-contaminate them. The HUD's `path` line shows which mode is in force. |
 | `s` | toggle tier-3 | Turns state blending off, forcing every pair down the bookend path — so CurlFlow ↔ Orbitals becomes an ordinary crossfade instead of a shared simulation. The single best A/B for showing what tier 3 buys you. **Takes effect on the next transition**, not the current one: the path is chosen once when a mix begins and doesn't change under it. |
 | `t` | timer trigger | Toggles unattended mode. Advances on its own at a randomised 25–55s interval (adjustable in the GUI), and only ever fires from `IDLE` — it won't interrupt a transition or steal a parked mix. Leave it on to watch the set cycle by itself. |
@@ -76,20 +76,30 @@ Fastest tour of what this is actually demonstrating, from a fresh load:
 | **CurlFlow** | `points-v1` | Divergence-free curl-noise advection. Slow, laminar. The resting state — stays alive with nobody at the wall, which is what an outro needs to close onto. |
 | **Orbitals** | `points-v1` | Inverse-square wells at each contact plus tangential spin. Fast, sharp, immediately legible. |
 | **Attractors** | `points-v1` | An Aizawa strange attractor as a velocity field. Contacts drag and deform the structure rather than pushing its contents. |
+| **Birds** | `points-v1` | Flocking swarm drawn as hard-edged instanced solids. Contacts are predators — the flock flees and wheels around your hand. |
 | **SDFField** | none | Raymarched metaballs. The minimum-viable contract: four methods, no tier-3 machinery. |
 | **MeshWarp** | none | Wave-equation lattice, lit and displaced. Carries persistent state and still declines tier 3 — see below. |
 
-Five pieces, twenty ordered transitions, six of them state blends. Three are
-worth watching, and the default cycle hits all three:
+Six pieces, thirty ordered transitions, twelve of them state blends. Four are
+worth watching, and the default cycle hits all four:
 
 - **CurlFlow ↔ Orbitals** — shared state, mismatched **timescales**. The original
   hard tier-3 pair, and the one that forced per-element ownership.
 - **CurlFlow ↔ Attractors** — shared state, mismatched **spatial support**. A
-  space-filling flow against a thin manifold. Harder than the first, and it
-  forced a second mechanism; see below.
+  space-filling flow against a thin manifold. It forced ownership to be
+  partitionable by identity rather than position.
+- **CurlFlow ↔ Birds** — shared state, mismatched **renderer**. Streaks become
+  solid geometry and nothing re-simulates across the transition. The clearest
+  demonstration in the set that a state format is not a look.
 - **SDFField ↔ MeshWarp** — the hard bookend pair. Nothing in common, no shared
   state possible. Whatever makes this feel intentional is what the bookend
   design has to deliver.
+
+Birds is also the piece that proved rule and renderer are independent axes.
+`InstancedRenderer` reads position and velocity from `points-v1` and knows
+nothing about what produced them, so any rule in the family can be drawn as
+streaks or as solids — which is what makes the third pair above cost almost
+nothing to build.
 
 ## The two transition paths
 
@@ -237,19 +247,29 @@ Measured on Intel UHD 630 (integrated, ANGLE/Metal) at 1280×720:
 
 | scenario | gpu |
 |---|---|
-| Orbitals solo | 2.8ms |
-| Attractors solo | 3.1ms |
+| Birds solo | 2.5ms |
+| Orbitals solo | 3.0ms |
+| Attractors solo | 3.4ms |
 | CurlFlow solo | 3.5ms |
-| MeshWarp solo | 4.3ms |
-| **SDFField solo** | **9.2ms** |
-| CurlFlow ↔ Orbitals, state blend | 5.8ms |
-| Orbitals ↔ Attractors, state blend | 5.8ms |
-| Attractors ↔ SDFField, bookend | 9.5ms |
-| SDFField ↔ MeshWarp, bookend | 10.3ms |
+| MeshWarp solo | 3.5ms |
+| **SDFField solo** | **8.4ms** |
+| CurlFlow ↔ Orbitals, state blend | 5.2ms |
+| Orbitals ↔ Attractors, state blend | 5.3ms |
+| Attractors ↔ Birds, state blend | 5.4ms |
+| Birds ↔ SDFField, bookend | 10.0ms |
+| SDFField ↔ MeshWarp, bookend | 10.6ms |
 
-Note that adding a third rule to `points-v1` cost nothing at runtime — a state
-blend is two step passes and a merge regardless of which rules they are, so the
-tier-3 family can grow without the budget moving.
+Two things worth reading off that table.
+
+**Growing the tier-3 family is free.** A state blend is two step passes and a
+merge regardless of which rules they are, so all four state-blend pairs cost the
+same and adding a fifth rule wouldn't move the number.
+
+**Birds is the cheapest piece in the set despite being the most complex** — it
+runs a scatter pass, a neighbourhood query and lit instanced geometry, and still
+comes in under a piece that just draws streaks. Entirely because of the stride:
+3,686 instances instead of 36,864. Draw count dominates everything else here, so
+the piece that draws less wins even when it computes far more.
 
 **SDFField is the piece that fails the rule.** On its own it costs more than the
 entire mixing budget, so every transition it takes part in overruns. `steps` in
@@ -292,8 +312,10 @@ src/
     capabilities.js       boot-time extension check
   pieces/
     Piece.js              the contract
-    ParticleBase.js       all shared points-v1 machinery
-    CurlFlow.js  Orbitals.js  Attractors.js  SDFField.js  MeshWarp.js
+    ParticleBase.js       shared points-v1 machinery + the streak renderer
+    InstancedRenderer.js  the alternative renderer — solids over the same state
+    CurlFlow.js  Orbitals.js  Attractors.js  Birds.js
+    SDFField.js  MeshWarp.js
   shaders/
     index.js              #include resolver, HMR entry point
     chunks/               common, noise, points, blend

@@ -107,26 +107,44 @@ await drag(520, 340, 12, 6, 30);
 await page.waitForTimeout(1200);
 await shot('05-attractors');
 
-// --- bookend path ----------------------------------------------------------
+// --- Birds: streaks becoming solids on shared state ------------------------
+// The clearest demonstration the set has that a state format is not a look:
+// nothing re-simulates across this transition, only the reading changes.
 
 await page.keyboard.press('4');
+await page.waitForTimeout(150);
+await parkAt(0.5, 6000);
+await shot('06-attractors-birds-0.5');
+await page.keyboard.press(' ');
+await page.waitForTimeout(8000);
+await shot('07-birds');
+
+// the hand as predator
+await drag(620, 360, 10, 4, 40, true);
+await page.waitForTimeout(500);
+await shot('08-birds-scared');
+await page.mouse.up();
+
+// --- bookend path ----------------------------------------------------------
+
+await page.keyboard.press('5');
 await page.waitForTimeout(900);
-await shot('06-attractors-sdf-bookend');
+await shot('09-birds-sdf-bookend');
 const bookend = await page.evaluate(() => ({
   path: window.wall.seq.path, mode: window.wall.seq.mode,
 }));
-await page.waitForTimeout(2400);
-await shot('07-sdffield');
+await page.waitForTimeout(2600);
+await shot('10-sdffield');
 
-// the hard bookend pair — flat lattice against raymarched solids, nothing shared
+// the hard bookend pair — lit lattice against raymarched solids, nothing shared
 await drag(700, 300, -18, 12, 20);
-await page.keyboard.press('5');
+await page.keyboard.press('6');
 await page.waitForTimeout(1000);
-await shot('08-sdf-mesh-bookend');
+await shot('11-sdf-mesh-bookend');
 await page.waitForTimeout(2400);
 await drag(600, 400, 8, 5, 30);
 await page.waitForTimeout(700);
-await shot('09-meshwarp');
+await shot('12-meshwarp');
 
 // --- every blend mode, so each compositor branch compiles and runs ---------
 
@@ -139,7 +157,7 @@ for (const mode of ['lerp', 'additive', 'difference', 'luma-key', 'displace']) {
     window.wall.seq.compositor.stateMode = m;
   }, mode);
   await page.waitForTimeout(400);
-  await shot(`10-blend-${mode}`);
+  await shot(`13-blend-${mode}`);
 }
 await page.evaluate(() => {
   window.wall.seq.compositor.mode = 'displace';
@@ -151,15 +169,15 @@ await page.keyboard.press('Escape');
 
 await page.evaluate(() => window.wall.setSynthetic('orbit'));
 await page.waitForTimeout(1500);
-await shot('11-synthetic');
+await shot('14-synthetic');
 
 await page.setViewportSize({ width: 900, height: 900 });
 await page.waitForTimeout(900);
-await shot('12-resized');
+await shot('15-resized');
 
 await page.keyboard.press('r');
 await page.waitForTimeout(1600);
-await shot('13-after-reset');
+await shot('16-after-reset');
 
 const final = await page.evaluate(() => ({
   gpu: window.wall.caps.renderer,

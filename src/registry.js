@@ -1,6 +1,7 @@
 import { CurlFlow } from './pieces/CurlFlow.js';
 import { Orbitals } from './pieces/Orbitals.js';
 import { Attractors } from './pieces/Attractors.js';
+import { Birds } from './pieces/Birds.js';
 import { SDFField } from './pieces/SDFField.js';
 import { MeshWarp } from './pieces/MeshWarp.js';
 
@@ -21,4 +22,4 @@ import { MeshWarp } from './pieces/MeshWarp.js';
  * Ordered so the default cycle walks the whole tier-3 family and then hits the
  * hard bookend pair, without being asked.
  */
-export const registry = [CurlFlow, Orbitals, Attractors, SDFField, MeshWarp];
+export const registry = [CurlFlow, Orbitals, Attractors, Birds, SDFField, MeshWarp];

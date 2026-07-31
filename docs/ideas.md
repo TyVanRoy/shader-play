@@ -17,9 +17,10 @@ having, but they should say so rather than dress up as experiments.
 | `PARKED` | worth doing, not now |
 | `OPEN` | not yet triaged |
 
-**Agreed order:** Attractors → Birds → instanced geometry as a third reading.
-The last two share a renderer, which is why Birds goes before the idea it makes
-cheap. Everything else waits.
+**Agreed order:** ~~Attractors~~ → ~~Birds~~ → instanced geometry as a third
+reading. The last two share a renderer, which is why Birds went before the idea
+it makes cheap — and it worked: `InstancedRenderer` is already generic over
+`points-v1`, so §3 is now a piece class and a palette. Everything else waits.
 
 ---
 
@@ -71,7 +72,18 @@ had to roughly double, since every respawned particle spends its first seconds
 commuting to the manifold and a short lifespan means a permanent haze of
 commuters over the structure.
 
-## 2. Birds — hard-edged flocking swarm · `QUEUED` *(next)*
+## 2. Birds — hard-edged flocking swarm · `DONE`
+
+*Built. The grid approach worked as sketched and the stride turned out to matter
+even more than predicted — Birds is the **cheapest** piece in the set at 2.5ms
+despite running a scatter pass, a neighbourhood query and lit instanced
+geometry, because it draws 3,686 instances instead of 36,864 streaks. Banking
+via deviation from the local average heading works well. Four things went wrong
+and are written up in `threejs-prototype.md` §6; the runtime-agnostic parts —
+rule and renderer as independent axes, ownership needing a per-renderer
+mechanism, population-driven rules as a distinct class — are in
+`architecture.md` §4. Original entry kept below.*
+
 
 A flock of hard-edged, low-poly birds — real instanced geometry, lit, banking as
 it turns — that scatters away from and wheels around contacts. Touching the wall

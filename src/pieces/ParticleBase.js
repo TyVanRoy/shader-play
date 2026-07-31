@@ -67,14 +67,41 @@ export class ParticleBase extends Piece {
       uSrcVel: { value: null },
     });
 
-    // --- streak cloud -------------------------------------------------------
+    // --- visual --------------------------------------------------------------
+    this._buildVisual(ctx);
+
+    this.scene = new THREE.Scene();
+    this.scene.add(this.visual);
+
+    this.camera = new THREE.PerspectiveCamera(FOV, ctx.aspect, 0.1, 40);
+    this.camera.position.set(0, 0, BASE_DIST);
+    this.camera.lookAt(0, 0, 0);
+
+    this.bg = new THREE.Color(...(this.palette.bg ?? [0.004, 0.006, 0.011]));
+  }
+
+  /**
+   * Build the thing that draws the state. Sets `this.visual` (an Object3D),
+   * `this.renderU` (uniforms, synced every frame) and `this.visualMat`.
+   *
+   * Override to swap renderers — Birds uses instanced geometry instead. The
+   * split exists because "what the rule is" and "how the state is drawn" turned
+   * out to be genuinely independent axes: any points-v1 rule can be shown as
+   * streaks or as solids, and the interesting transitions include ones where
+   * only the second changes.
+   */
+  _buildVisual(_ctx) {
+    const size = this.size;
+    const pal = this.palette;
+
     // Two vertices per particle: the shader reads tail and head from the same
     // state texel, so the "geometry" is nothing but a vertex count.
-    const count = size * size;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 2 * 3), 3));
+    geo.setAttribute(
+      'position',
+      new THREE.BufferAttribute(new Float32Array(size * size * 2 * 3), 3),
+    );
 
-    const pal = this.palette;
     this.renderU = {
       ...commonUniforms(),
       uPos: { value: null },
@@ -96,7 +123,7 @@ export class ParticleBase extends Piece {
       uSpeedScale: { value: pal.speedScale ?? 0.6 },
     };
 
-    this.pointsMat = new THREE.RawShaderMaterial({
+    this.visualMat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
       vertexShader: glsl('pointsVert'),
       fragmentShader: glsl('pointsFrag'),
@@ -107,17 +134,8 @@ export class ParticleBase extends Piece {
       depthWrite: false,
     });
 
-    this.points = new THREE.LineSegments(geo, this.pointsMat);
-    this.points.frustumCulled = false;
-
-    this.scene = new THREE.Scene();
-    this.scene.add(this.points);
-
-    this.camera = new THREE.PerspectiveCamera(FOV, ctx.aspect, 0.1, 40);
-    this.camera.position.set(0, 0, BASE_DIST);
-    this.camera.lookAt(0, 0, 0);
-
-    this.bg = new THREE.Color(...(this.palette.bg ?? [0.004, 0.006, 0.011]));
+    this.visual = new THREE.LineSegments(geo, this.visualMat);
+    this.visual.frustumCulled = false;
   }
 
   // --- camera ---------------------------------------------------------------
@@ -167,8 +185,8 @@ export class ParticleBase extends Piece {
     this.state.dispose();
     this.stepMat.dispose();
     this.copyMat.dispose();
-    this.pointsMat.dispose();
-    this.points.geometry.dispose();
+    this.visualMat.dispose();
+    this.visual.geometry.dispose();
   }
 
   // --- tier 3 ---------------------------------------------------------------
