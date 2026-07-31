@@ -9,6 +9,9 @@ import { glsl } from '../shaders/index.js';
 const FOV = 45;
 const BASE_DIST = (WALL_HEIGHT / 2) / Math.tan((FOV / 2) * Math.PI / 180);
 
+/** Camera every points-v1 piece falls back to while sharing state. See _updateCamera. */
+const SHARED_MOTION = { swing: 0.16, rise: 0.09, rate: 0.10, roll: 0.03 };
+
 /**
  * Everything two points-v1 pieces have in common: the state ping-pong, the
  * seed pass, the point cloud, the camera, and the full tier-3 implementation.
@@ -85,6 +88,7 @@ export class ParticleBase extends Piece {
       uOwn: { value: 0 },
       uBlendMix: { value: 0 },
       uBlendPatch: { value: 0 },
+      uBlendSpatial: { value: 1 },
       uColorSlow: { value: new THREE.Color().fromArray(pal.slow) },
       uColorFast: { value: new THREE.Color().fromArray(pal.fast) },
       uColorTip: { value: new THREE.Color().fromArray(pal.tip) },
@@ -119,13 +123,18 @@ export class ParticleBase extends Piece {
   // --- camera ---------------------------------------------------------------
 
   _updateCamera(ctx) {
-    const m = this.cameraMotion;
+    // During a state blend both pieces are drawing the *same* particles and the
+    // compositor lerps the results, so two different cameras produce a double
+    // image — every streak ghosted against itself. A shared camera isn't a
+    // compromise here, it's the correct reading: there is one scene, and the
+    // two pieces disagree about the physics and the palette, not about where
+    // the viewer is standing. The bookend dolly goes too, for the same reason
+    // the render-space dispersion does.
+    const blending = ctx.blend.active;
+    const m = blending ? SHARED_MOTION : this.cameraMotion;
     const t = ctx.time;
 
-    // Bookends move the camera too. On the way in it settles forward from a
-    // wide shot; on the way out it pulls back. Cheap, and it does more to make
-    // a transition feel intentional than any amount of fading.
-    const dolly = 1 + (1 - ctx.energy) * 0.55;
+    const dolly = blending ? 1 : 1 + (1 - ctx.energy) * 0.55;
 
     this.camera.position.set(
       Math.sin(t * m.rate) * m.swing,
@@ -196,6 +205,7 @@ export class ParticleBase extends Piece {
     this.renderU.uOwn.value = b.own;
     this.renderU.uBlendMix.value = b.m;
     this.renderU.uBlendPatch.value = b.patch;
+    this.renderU.uBlendSpatial.value = b.spatial;
 
     this._updateCamera(ctx);
 

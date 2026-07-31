@@ -5,9 +5,35 @@
 // you get particles moving under one rule while being coloured as the other,
 // which reads as exactly the glitch tier 3 is trying not to be.
 
-/** Spatially coherent, slowly drifting threshold in [0,1]. */
-float blendRegion(vec3 p, float time) {
-  return snoise(p * 0.9 + vec3(0.0, 0.0, time * 0.06)) * 0.5 + 0.5;
+/**
+ * Each element's switching threshold, in [0,1]. Two ways to draw it, and which
+ * one is right depends on the pair.
+ *
+ * **By place** — a slowly drifting noise field over position. Neighbouring
+ * elements switch together, so the audience sees a front sweep across the wall.
+ * This is the better-looking option and the right default for two rules that
+ * both fill the volume.
+ *
+ * **By identity** — a hash of the element's own seed. Ownership is scattered
+ * uniformly through space instead of clustered, so there is no visible front,
+ * but *both rules keep their full spatial extent* at every value of m.
+ *
+ * That last property is not a nicety. A rule whose identity is a global
+ * structure — a strange attractor's manifold, a flock's formation — is defined
+ * by the whole population arriving somewhere together. Partition it by place
+ * and each rule only gets the fragments of its structure that happen to fall
+ * inside its own regions: the manifold appears in disconnected patches and the
+ * piece stops being recognisable at exactly the midpoint you most want to park
+ * at. Partition it by identity and the structure still forms, just at half
+ * density, which is what you actually want.
+ *
+ * `spatial` mixes between them so a pair can pick. See `stateSupport` on the
+ * piece classes for how the sequencer chooses a default.
+ */
+float blendRegion(vec3 p, float seed, float time, float spatial) {
+  float byPlace = snoise(p * 0.9 + vec3(0.0, 0.0, time * 0.06)) * 0.5 + 0.5;
+  float byIdentity = hash11(seed * 733.0 + 11.0);
+  return mix(byIdentity, byPlace, spatial);
 }
 
 /**

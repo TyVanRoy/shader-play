@@ -18,6 +18,7 @@ uniform vec3  uColorFast;
 uniform vec3  uColorTip;
 uniform float uGain;
 uniform float uSpeedScale;
+uniform float uStateBlend;
 
 void main() {
   float s = clamp(vSpeed * uSpeedScale, 0.0, 1.0);
@@ -32,7 +33,13 @@ void main() {
   // fade in at spawn and out at death — life counts down from 1
   float lifeFade = smoothstep(1.0, 0.90, vLife) * smoothstep(0.0, 0.10, vLife);
 
-  col *= along * lifeFade * vFade * uGain * uEnergy;
+  // The bookend brightness envelope is likewise a *bookend* mechanism. During a
+  // state blend, ownership already decides which particles this piece shows and
+  // the weight compensation already keeps the sum at full brightness; folding
+  // uEnergy in on top would darken the midpoint all over again.
+  float envelope = mix(uEnergy, 1.0, uStateBlend);
+
+  col *= along * lifeFade * vFade * uGain * envelope;
 
   // additive: alpha carries no information, colour is already premultiplied
   fragColor = vec4(col, 1.0);

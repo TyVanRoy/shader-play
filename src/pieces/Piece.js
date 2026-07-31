@@ -20,6 +20,21 @@ export class Piece {
   static title = 'Unnamed';
   /** null = no tier-3 participation. Otherwise a format id, e.g. 'points-v1'. */
   static stateFormat = null;
+
+  /**
+   * How spatially spread this piece's state is, in [0,1]. Only consulted for
+   * tier-3 pairs, and only worth setting if the answer isn't 1.
+   *
+   *   1.0  the rule fills the volume — noise flow, a force field, a fluid
+   *   ~0.1 the rule's identity is a global structure occupying a fraction of
+   *        the volume — a strange attractor's manifold, a flock's formation
+   *
+   * The sequencer takes the minimum across the pair and uses it to decide
+   * whether to partition ownership by place or by identity. Partitioning a
+   * structured rule by place cuts its structure into disconnected fragments
+   * and it stops being recognisable mid-transition; see chunks/blend.glsl.
+   */
+  static stateSupport = 1.0;
   /** Bookend durations, seconds. */
   static intro = 2.0;
   static outro = 2.0;

@@ -93,8 +93,9 @@ export class Hud {
     lines.push(`<span class="dim">piece </span>${A.title} <span class="dim">${A.stateFormat ?? 'stateless'}</span>`);
 
     if (B) {
+      const part = s.spatial > 0.5 ? 'by place' : 'by identity';
       const pathLabel = s.path === 'state'
-        ? `<span class="hot">STATE BLEND</span> <span class="dim">${A.stateFormat} + ${s.compositor.stateMode}</span>`
+        ? `<span class="hot">STATE BLEND</span> <span class="dim">${A.stateFormat} + ${s.compositor.stateMode} · ${part} ${s.spatial.toFixed(2)}</span>`
         : `<span class="warn">bookend</span> <span class="dim">+ ${s.compositor.mode}</span>`;
       lines.push(`<span class="dim">   ─▶ </span>${B.title} <span class="dim">${B.stateFormat ?? 'stateless'}</span>`);
       lines.push(`<span class="dim">path  </span>${pathLabel}`);

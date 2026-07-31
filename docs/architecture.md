@@ -53,12 +53,28 @@ Built and confirmed — but the naive version fails, reliably rather than occasi
 
 **Blend ownership, not rules.** The obvious merge is to run both update rules on the shared state and average the results: `mix(ruleA(s), ruleB(s), m)`. At `m = 0.5` that gives every element a physics that is neither rule and looks like neither — the mush this document already predicts. It cannot be tuned out with an easing curve, because the problem is not the trajectory through `m`, it's what `m = 0.5` *means*.
 
-Instead give every element its own switching threshold, drawn from a spatially coherent noise field, and switch it **hard**. At `m = 0.5` half the state is fully governed by rule A and half fully by rule B, and because the thresholds are spatially coherent the audience sees a **front moving across the wall** rather than the whole surface going soft at once. That reads as two physics coexisting. The averaged version reads as a bug.
+Instead give every element its own switching threshold and switch it **hard**. At `m = 0.5` half the state is fully governed by rule A and half fully by rule B. That reads as two physics coexisting. The averaged version reads as a bug.
 
-Two consequences for the contract:
+**Where the threshold comes from is a second decision, and it depends on the pair.** Drawing it from a spatially coherent noise field is the better-looking answer: neighbouring elements switch together, so the audience sees a **front moving across the wall** rather than the whole surface going soft at once.
+
+That answer breaks for any rule whose identity is a **global structure** rather than a local behaviour — a strange attractor's manifold, a flock's formation, anything defined by the whole population arriving somewhere together. Partition it by place and each rule receives only the fragments of its structure that happen to fall inside its own regions: the manifold appears as disconnected arcs, and mid-transition the wall shows something recognisable as neither piece. Exactly the mush the hard switch was introduced to remove, arrived at from a different direction.
+
+The fix is to draw the threshold from the element's **identity** instead of its position. Ownership then scatters uniformly through space, so there is no visible front, but both rules keep their full spatial extent at every value of the mix and the structure still forms — at reduced density, which is what you want. Pieces should therefore declare roughly how spatially distributed their state is, and the sequencer should take the minimum across the pair. Volume-filling rules get the front; structured rules get identity partitioning; a mixed pair falls back to the safe one.
+
+Three consequences for the contract:
 
 - **A piece must be able to render state it does not own.** During a state blend there is one state and two rules; both pieces have to draw it. Any piece interface that assumes a piece renders *its own* state will need this added.
 - **The ownership function is shared between the simulation and the renderer, and must not drift.** Each piece has to draw only the elements its own rule currently governs — otherwise both pieces draw everything, the compositor averages their two palettes, and the transition washes out to grey at exactly the moment it should be most interesting. If the physics and the visuals disagree about who owns an element, you get elements moving under one rule while coloured as the other, which is precisely the glitch tier 3 exists to avoid.
+
+- **A piece needs a declared hint about how its state occupies space,** for the partition choice above. This is cheap — one number, defaulting to "fills the volume", set only by pieces that don't.
+
+### [prototype] Bookends and state blending do not compose
+
+They are **alternative** transition mechanisms, not layers to be stacked, and stacking them is the same mistake as fading pieces externally (§5) wearing a different costume.
+
+A piece's outro choreography — dispersing, dimming, pulling the camera back — is what it does *instead of* handing its state to someone else. Run both and the bookend actively destroys the thing the state blend is trying to show: on two diffuse rules the result merely looks soft, but on a rule whose value is a crisp structure the outro's displacement obliterates it at exactly the mix values worth parking at. The sequencer should suppress bookend choreography outright on the state path.
+
+There is a related constraint that is easy to miss until it bites: **two pieces sharing state must also share a viewpoint.** They are drawing the same elements, so if each renders from its own camera the composite ghosts every element against itself. A shared camera is not a compromise — it is the correct reading of the situation. There is one scene, and the pieces disagree about the physics and the palette, not about where the viewer is standing.
 
 ### Why this matters combinatorially
 Twelve pieces yield 144 ordered transitions. If the mix parameter can **park** — hold at 0.4 indefinitely rather than always running to completion — the reachable state space is effectively unbounded. Nobody sees the same wall twice, without generating a single new piece.

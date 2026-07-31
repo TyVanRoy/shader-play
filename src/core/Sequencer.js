@@ -55,6 +55,7 @@ export class Sequencer {
     this.rawM = 0;
     this.m = 0;
     this.path = 'bookend';
+    this.spatial = 1;
 
     this.params = {
       curve: 'smooth',
@@ -62,6 +63,9 @@ export class Sequencer {
       warmStart: true,
       stateBlendEnabled: true,
       patchiness: 0.85,
+      /** false pins `spatial` to spatialManual instead of deriving it from the pair. */
+      spatialAuto: true,
+      spatialManual: 1.0,
       order: 'sequence',       // 'sequence' | 'shuffle'
     };
 
@@ -84,6 +88,7 @@ export class Sequencer {
       uPrevPos: { value: null },
       uMix: { value: 0 },
       uPatch: { value: this.params.patchiness },
+      uSpatial: { value: 1 },
       uTime: { value: 0 },
     });
 
@@ -125,7 +130,7 @@ export class Sequencer {
       stateDriven: false,
       // Tier-3 ownership, so a piece rendering shared state knows which half of
       // the population is currently obeying its rule.
-      blend: { active: false, own: 0, m: 0, patch: 0 },
+      blend: { active: false, own: 0, m: 0, patch: 0, spatial: 1 },
     };
   }
 
@@ -160,6 +165,14 @@ export class Sequencer {
     const A = this.a.constructor;
     const B = this.b.constructor;
     this.path = this.canStateBlend(this.a, this.b) ? 'state' : 'bookend';
+
+    // How to partition ownership for this pair. The minimum wins: if either
+    // rule's identity is a global structure, place-partitioning would shred it,
+    // so the whole pair falls back to identity-partitioning.
+    this.spatial = this.params.spatialAuto
+      ? Math.min(A.stateSupport ?? 1, B.stateSupport ?? 1)
+      : this.params.spatialManual;
+
     this.duration = Math.max(A.outro, B.intro) * this.params.durationScale;
     this.elapsed = 0;
     this.rawM = 0;
@@ -248,6 +261,7 @@ export class Sequencer {
     u.uPrevPos.value = prev[0];
     u.uMix.value = this.m;
     u.uPatch.value = this.params.patchiness;
+    u.uSpatial.value = this.spatial;
     u.uTime.value = this.time;
 
     this.quad.render(this.blendMat, this.shared.write);
@@ -312,8 +326,9 @@ export class Sequencer {
     if (this.path === 'state') {
       ctxA.stateDriven = true;
       ctxB.stateDriven = true;
-      ctxA.blend = { active: true, own: 0, m: this.m, patch: this.params.patchiness };
-      ctxB.blend = { active: true, own: 1, m: this.m, patch: this.params.patchiness };
+      const shared = { active: true, m: this.m, patch: this.params.patchiness, spatial: this.spatial };
+      ctxA.blend = { ...shared, own: 0 };
+      ctxB.blend = { ...shared, own: 1 };
 
       this._stepSharedState(ctxA, ctxB, dt);
 

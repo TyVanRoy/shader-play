@@ -2,6 +2,7 @@
 
 A prototype of the sequencing and mixing model in [`docs/architecture.md`](docs/architecture.md),
 built to the plan in [`docs/threejs-prototype.md`](docs/threejs-prototype.md).
+What's next lives in [`docs/ideas.md`](docs/ideas.md).
 
 No projector, no depth camera. A canvas, mouse and multi-touch input, and four
 3D pieces that the sequencer transitions between.
@@ -48,7 +49,7 @@ Everything below exists to answer those.
 | `←` `→` | scrub the mix | Steps `m` by ±0.05, or ±0.01 with `shift`. **Parks the transition automatically**, so the first arrow press freezes it and every press after that moves it by hand. This is the main tool for judging a transition; nothing else lets you sit inside one. |
 | `p` | park / resume | Freezes the mix wherever it currently is, or releases it. Only meaningful during a transition. `PARKED` is a real sequencer state, not a debug pause — the wall keeps simulating, keeps responding to touch, and holds the blended state indefinitely. |
 | `esc` | cancel | Abandons the transition and snaps back to the piece you were leaving. Note it returns to **A**, not B — it's an undo, not a skip. |
-| `1`–`4` | jump to a piece | Starts a transition to that specific piece rather than the next one in sequence. Cancels any transition already running first. Pressing the number of the piece you're already on does nothing. Use this to reach a specific pair — `1` then `2` is the state-blend pair, `3` then `4` the hard bookend pair. |
+| `1`–`5` | jump to a piece | Starts a transition to that specific piece rather than the next one in sequence. Cancels any transition already running first. Pressing the number of the piece you're already on does nothing. Use this to reach a specific pair — `1`→`2` and `2`→`3` are the two state-blend pairs, `4`→`5` the hard bookend pair. |
 | `b` | cycle blend mode | Steps through `lerp → additive → difference → luma-key → displace`. **Which setting it changes depends on the live path**: during a state blend it cycles `stateMode`, otherwise `mode`. The compositor keeps the two separately because displace is right for bookends and wrong for state blends, so this key deliberately won't let you cross-contaminate them. The HUD's `path` line shows which mode is in force. |
 | `s` | toggle tier-3 | Turns state blending off, forcing every pair down the bookend path — so CurlFlow ↔ Orbitals becomes an ordinary crossfade instead of a shared simulation. The single best A/B for showing what tier 3 buys you. **Takes effect on the next transition**, not the current one: the path is chosen once when a mix begins and doesn't change under it. |
 | `t` | timer trigger | Toggles unattended mode. Advances on its own at a randomised 25–55s interval (adjustable in the GUI), and only ever fires from `IDLE` — it won't interrupt a transition or steal a parked mix. Leave it on to watch the set cycle by itself. |
@@ -74,14 +75,18 @@ Fastest tour of what this is actually demonstrating, from a fresh load:
 |---|---|---|
 | **CurlFlow** | `points-v1` | Divergence-free curl-noise advection. Slow, laminar. The resting state — stays alive with nobody at the wall, which is what an outro needs to close onto. |
 | **Orbitals** | `points-v1` | Inverse-square wells at each contact plus tangential spin. Fast, sharp, immediately legible. |
+| **Attractors** | `points-v1` | An Aizawa strange attractor as a velocity field. Contacts drag and deform the structure rather than pushing its contents. |
 | **SDFField** | none | Raymarched metaballs. The minimum-viable contract: four methods, no tier-3 machinery. |
 | **MeshWarp** | none | Wave-equation lattice, lit and displaced. Carries persistent state and still declines tier 3 — see below. |
 
-Two pairs are the ones worth watching, and the default cycle hits both:
+Five pieces, twenty ordered transitions, six of them state blends. Three are
+worth watching, and the default cycle hits all three:
 
-- **CurlFlow ↔ Orbitals** — the hard tier-3 pair. Shared state, deliberately
-  mismatched timescales. If this can be made to read as a physics change rather
-  than mush, the easier pairs are free.
+- **CurlFlow ↔ Orbitals** — shared state, mismatched **timescales**. The original
+  hard tier-3 pair, and the one that forced per-element ownership.
+- **CurlFlow ↔ Attractors** — shared state, mismatched **spatial support**. A
+  space-filling flow against a thin manifold. Harder than the first, and it
+  forced a second mechanism; see below.
 - **SDFField ↔ MeshWarp** — the hard bookend pair. Nothing in common, no shared
   state possible. Whatever makes this feel intentional is what the bookend
   design has to deliver.
@@ -113,7 +118,7 @@ texture 1 (VEL)   xyz = world velocity     w = seed  [0,1], stable per slot
 Loose on purpose, as `field-v1` is. Two pieces reading these channels
 differently is fine and probably desirable.
 
-### Three things that had to be right for tier 3 to work
+### Five things that had to be right for tier 3 to work
 
 Getting this from "mush at m = 0.5" to something worth watching took three
 fixes, all of which are load-bearing:
@@ -136,6 +141,26 @@ fixes, all of which are load-bearing:
    registration. The compositor keeps a separate `stateMode` for this. Combined
    with (2)'s weight compensation, the lerp sums the two halves back into one
    full-brightness population — no mid-transition brightness dip.
+
+4. **Partition by identity when either rule is a structure.** Ownership
+   thresholds normally come from a noise field over *position*, which is what
+   produces the front sweeping across the wall. That breaks the moment a rule's
+   identity is a global structure rather than a local behaviour: partition an
+   attractor by place and each rule only gets the fragments of the manifold
+   falling inside its own regions, so the structure shows up as disconnected
+   arcs and is recognisable as neither piece. Drawing the threshold from the
+   particle's *seed* instead scatters ownership uniformly through space — no
+   front, but both rules keep their full spatial extent at every mix value. A
+   piece declares `static stateSupport` and the sequencer takes the minimum
+   across the pair; the HUD shows which partition is live.
+
+5. **Bookends and state blending do not compose.** They are alternative
+   transition mechanisms, and running both at once is the same mistake as
+   fading pieces externally wearing a different costume. During a state blend
+   the render-space dispersion, the brightness envelope and the camera dolly are
+   all suppressed — the state blend *is* the transition. Two pieces sharing
+   state must also share a **camera**: they are drawing the same particles, so
+   two viewpoints lerped together ghost every streak against itself.
 
 ## Adding a piece
 
@@ -212,13 +237,19 @@ Measured on Intel UHD 630 (integrated, ANGLE/Metal) at 1280×720:
 
 | scenario | gpu |
 |---|---|
-| CurlFlow solo | 3.3ms |
-| Orbitals solo | 2.3ms |
-| MeshWarp solo | 3.8ms |
+| Orbitals solo | 2.8ms |
+| Attractors solo | 3.1ms |
+| CurlFlow solo | 3.5ms |
+| MeshWarp solo | 4.3ms |
 | **SDFField solo** | **9.2ms** |
-| CurlFlow ↔ Orbitals, state blend | 5.2ms |
-| Orbitals ↔ SDFField, bookend | 10.6ms |
-| SDFField ↔ MeshWarp, bookend | 11.0ms |
+| CurlFlow ↔ Orbitals, state blend | 5.8ms |
+| Orbitals ↔ Attractors, state blend | 5.8ms |
+| Attractors ↔ SDFField, bookend | 9.5ms |
+| SDFField ↔ MeshWarp, bookend | 10.3ms |
+
+Note that adding a third rule to `points-v1` cost nothing at runtime — a state
+blend is two step passes and a merge regardless of which rules they are, so the
+tier-3 family can grow without the budget moving.
 
 **SDFField is the piece that fails the rule.** On its own it costs more than the
 entire mixing budget, so every transition it takes part in overruns. `steps` in
@@ -262,7 +293,7 @@ src/
   pieces/
     Piece.js              the contract
     ParticleBase.js       all shared points-v1 machinery
-    CurlFlow.js  Orbitals.js  SDFField.js  MeshWarp.js
+    CurlFlow.js  Orbitals.js  Attractors.js  SDFField.js  MeshWarp.js
   shaders/
     index.js              #include resolver, HMR entry point
     chunks/               common, noise, points, blend

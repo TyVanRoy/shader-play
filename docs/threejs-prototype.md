@@ -292,6 +292,22 @@ This means the ownership function is shared between the step pass and the vertex
 
 The non-linear mix curve (`through-middle`) is implemented and is a mild improvement. It is not a substitute for any of the above.
 
+### [built] Two more, found by adding a third rule
+
+The first three fixes came from CurlFlow ↔ Orbitals. Adding **Attractors** — same state format, but its identity is a manifold occupying a fraction of the volume rather than a behaviour spread through all of it — exposed two more.
+
+**4. The ownership threshold can come from position or from identity, and the pair has to choose.** Everything above assumes a noise field over position, which is what produces the front sweeping across the wall. It fails on a structured rule: the attractor only receives the fragments of its manifold that fall inside its own regions, so it shows up as disconnected arcs and mid-transition the wall is recognisable as neither piece. Hashing the particle's `seed` instead scatters ownership uniformly through space — no front, but both rules keep their full extent at every mix value and the manifold still forms at half density.
+
+`blendRegion()` now mixes the two sources, pieces declare `static stateSupport` (1 = fills the volume, ~0.1 = structured), and the sequencer takes the minimum across the pair. The HUD reports which partition is live. Worth keeping the slider: the two behaviours side by side on the *same* pair is the clearest illustration of what ownership blending is actually doing.
+
+**5. Bookend choreography has to be switched off during a state blend.** This one produced a genuinely confusing bug. Parking CurlFlow ↔ Attractors at 0.5 gave a dim structureless blob that got *worse* the longer it was held — which read like a simulation instability and was nothing of the sort.
+
+The cause: `uEnergy` drops to ~0.58 at the midpoint of a bookend, and the render-space dispersion scatters each particle by up to `(1 - uEnergy) × uDisperse` in a random direction. On two diffuse rules that just looks soft. On a manifold it is fatal. Bookends and state blending are *alternative* mechanisms — the state blend is already the transition — so on the state path the dispersion, the brightness envelope and the camera dolly are all suppressed. Ownership plus the weight compensation from §7 already handle brightness correctly.
+
+Suppressing it also visibly improved the original CurlFlow ↔ Orbitals blend, which had been quietly degraded by the same effect the whole time without anyone being able to point at why.
+
+**And a corollary: pieces sharing state must share a camera.** They draw the same particles, so two cameras lerped together ghost every streak against itself. `ParticleBase` falls back to a neutral shared motion profile whenever `ctx.blend.active`. This was invisible on diffuse clouds and obvious the moment there was an edge to double.
+
 ---
 
 ## 7. Compositor (tier 1)

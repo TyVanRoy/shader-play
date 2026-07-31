@@ -14,6 +14,7 @@ import blendStateFrag from './blend-state.frag?raw';
 
 import curlflowStep from './curlflow.step.frag?raw';
 import orbitalsStep from './orbitals.step.frag?raw';
+import attractorsStep from './attractors.step.frag?raw';
 import pointsVert from './points.vert?raw';
 import pointsFrag from './points.frag?raw';
 import seedFrag from './seed.frag?raw';
@@ -46,6 +47,7 @@ export const shaders = {
   blendStateFrag,
   curlflowStep,
   orbitalsStep,
+  attractorsStep,
   pointsVert,
   pointsFrag,
   seedFrag,

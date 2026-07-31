@@ -31,6 +31,7 @@ uniform float uStateBlend; // 1 while this piece is sharing state with another
 uniform float uOwn;        // 0 = this piece is the outgoing rule, 1 = incoming
 uniform float uBlendMix;
 uniform float uBlendPatch;
+uniform float uBlendSpatial;
 
 out float vTip;
 out float vSpeed;
@@ -50,11 +51,14 @@ void main() {
 
   // Bookends, applied at render time rather than in the rule.
   //
-  // This matters for tier 3: during a state blend the simulation is shared and
-  // neither piece may move a particle on its own. Doing the intro/outro purely
-  // as a render-space displacement means the same bookend code works whether
-  // the piece owns the state or is only borrowing it.
-  float away = 1.0 - uEnergy;
+  // Suppressed entirely during a state blend, and that is not an optimisation.
+  // Bookends and state blending are *alternative* transition mechanisms, not
+  // composable ones — the state blend is already the transition, and scattering
+  // render positions on top of it is the sequencer fading pieces externally
+  // wearing a third costume. On two diffuse rules it merely looked soft; on a
+  // rule whose whole value is a crisp structure it destroys the structure at
+  // exactly the mix values you want to park at.
+  float away = (1.0 - uEnergy) * (1.0 - uStateBlend);
   if (away > 0.001) {
     vec3 dir = normalize(hash31(V.w * 311.0) - 0.5 + vec3(1e-3, 2e-3, 3e-3));
     head += dir * away * uDisperse * (0.35 + 0.65 * hash11(V.w * 71.0));
@@ -89,7 +93,8 @@ void main() {
   // wall then shows two physics coexisting, colour-coded, with a visible front
   // between them.
   if (uStateBlend > 0.5) {
-    float local = blendLocal(blendRegion(P.xyz, uTime), uBlendMix, uBlendPatch);
+    float local = blendLocal(
+      blendRegion(P.xyz, V.w, uTime, uBlendSpatial), uBlendMix, uBlendPatch);
     float mine = mix(1.0 - local, local, uOwn);
 
     // The compositor is about to scale this piece by uWeight, and the fraction

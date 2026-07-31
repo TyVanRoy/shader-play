@@ -35,7 +35,9 @@ export function buildGui(app) {
   // --- mixing ---------------------------------------------------------------
   const m = gui.addFolder('mixing');
   m.add(seq.params, 'stateBlendEnabled').name('tier 3 enabled');
-  m.add(seq.params, 'patchiness', 0, 1, 0.01).name('rule patchiness (t3)');
+  m.add(seq.params, 'patchiness', 0, 1, 0.01).name('switch hardness (t3)');
+  m.add(seq.params, 'spatialAuto').name('auto partition (t3)');
+  m.add(seq.params, 'spatialManual', 0, 1, 0.01).name('↳ by place vs identity');
   m.add(seq.compositor, 'mode', BLEND_MODES).name('tier 1 mode (bookend)');
   m.add(seq.compositor, 'stateMode', BLEND_MODES).name('tier 1 mode (state)');
   m.add(seq.compositor, 'amount', 0, 2, 0.01).name('tier 1 amount');

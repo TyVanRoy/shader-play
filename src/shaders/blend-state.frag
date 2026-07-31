@@ -23,7 +23,8 @@ uniform sampler2D uPosB;
 uniform sampler2D uVelB;
 uniform sampler2D uPrevPos;   // state before either rule ran
 uniform float uMix;
-uniform float uPatch;         // 0 = uniform mix across the wall, 1 = fully patchy
+uniform float uPatch;         // 0 = uniform mix across the wall, 1 = hard per-element switch
+uniform float uSpatial;       // 1 = partition by place, 0 = partition by identity
 uniform float uTime;
 
 #include <noise>
@@ -36,9 +37,10 @@ void main() {
   vec4 vb = texture(uVelB, vUv);
   vec3 prev = texture(uPrevPos, vUv).xyz;
 
-  // Per-region mixing — the third of the three fixes the doc lists for mush at
-  // m = 0.5, and on particles by far the most effective of them.
-  float m = blendLocal(blendRegion(prev, uTime), uMix, uPatch);
+  // Per-element ownership — the third of the three fixes the doc lists for mush
+  // at m = 0.5, and on particles by far the most effective of them.
+  // Seed is invariant, so reading it off the post-step buffer is exact.
+  float m = blendLocal(blendRegion(prev, va.w, uTime, uSpatial), uMix, uPatch);
 
   // Position is integrated from velocity over one dt by both rules, so the two
   // candidates are always close; lerping them can't tear the population apart.
