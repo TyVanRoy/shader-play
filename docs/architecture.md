@@ -1,6 +1,6 @@
 # Interactive Wall — System Architecture
 
-**Status:** design draft
+**Status:** design draft. §4, §10 and §11 carry findings from the Three.js prototype, marked **[prototype]**; §15 has been narrowed accordingly.
 **Scope:** runtime-agnostic. Describes what the system is and what contracts hold it together. Implementation-specific detail lives in `threejs-prototype.md`.
 
 ---
@@ -33,6 +33,10 @@ Render A and B to separate buffers, combine per-pixel. Always available, works b
 
 Beyond a plain lerp, the VJ toolkit applies: additive, difference, luma key, or **UV displacement** — use A's luminance to warp the coordinates B is sampled at, so one dissolves *through* the other rather than merely on top of it. Displacement is the one that doesn't look like a crossfade.
 
+**[prototype] The compositor needs a mode per path, not a mode.** Displacement earns its keep on bookend transitions between unrelated pieces. It is actively wrong underneath a tier-3 state blend, where the two buffers are the same state read by two rules and are perfectly registered by construction — warping one through the other destroys exactly the correspondence that makes the effect work. There, a plain lerp is the *correct* operator rather than the safe one: combined with the ownership weighting in §11 it sums two disjoint halves back into one full-brightness image. Carry both settings and select by path.
+
+Displacement is also sensitive to what it's fed: tuned against smooth fields it looks excellent, and given high-frequency content the same gradient weight smears both images into mud. Clamp the gradient term and mirror the sampled coordinates rather than clamping them, or the frame edge streaks.
+
 ### Tier 2 — Parameter blend
 If A and B are the same shader family differing only in uniforms, lerp the uniforms instead of the pixels. Cheap and seamless, but only works within a family. Useful for generating variation, not for connecting unrelated pieces.
 
@@ -43,8 +47,23 @@ Simulation-type pieces (fluid, reaction-diffusion, particle fields, wave equatio
 
 The wall does not fade. The physics change under the person's hand while the thing they just drew persists and starts behaving differently. This is the effect that has no equivalent in video, and it's the reason the state format is worth standardizing early even if the first release doesn't use it.
 
+### [prototype] The effect is real, and the obvious implementation does not produce it
+
+Built and confirmed — but the naive version fails, reliably rather than occasionally, and the failure is worth designing around up front.
+
+**Blend ownership, not rules.** The obvious merge is to run both update rules on the shared state and average the results: `mix(ruleA(s), ruleB(s), m)`. At `m = 0.5` that gives every element a physics that is neither rule and looks like neither — the mush this document already predicts. It cannot be tuned out with an easing curve, because the problem is not the trajectory through `m`, it's what `m = 0.5` *means*.
+
+Instead give every element its own switching threshold, drawn from a spatially coherent noise field, and switch it **hard**. At `m = 0.5` half the state is fully governed by rule A and half fully by rule B, and because the thresholds are spatially coherent the audience sees a **front moving across the wall** rather than the whole surface going soft at once. That reads as two physics coexisting. The averaged version reads as a bug.
+
+Two consequences for the contract:
+
+- **A piece must be able to render state it does not own.** During a state blend there is one state and two rules; both pieces have to draw it. Any piece interface that assumes a piece renders *its own* state will need this added.
+- **The ownership function is shared between the simulation and the renderer, and must not drift.** Each piece has to draw only the elements its own rule currently governs — otherwise both pieces draw everything, the compositor averages their two palettes, and the transition washes out to grey at exactly the moment it should be most interesting. If the physics and the visuals disagree about who owns an element, you get elements moving under one rule while coloured as the other, which is precisely the glitch tier 3 exists to avoid.
+
 ### Why this matters combinatorially
 Twelve pieces yield 144 ordered transitions. If the mix parameter can **park** — hold at 0.4 indefinitely rather than always running to completion — the reachable state space is effectively unbounded. Nobody sees the same wall twice, without generating a single new piece.
+
+**[prototype]** Parking holds up, conditional on the above. Done properly a parked mix is a genuinely distinct state — two physics coexisting with a visible boundary, something neither piece produces alone — and not merely a half-dissolved version of two things. Done naively it is mud every time. **PARK ships**, and the work that earns it belongs in the state-blend layer rather than the sequencer. Not yet judged by an audience on a real wall.
 
 ## 5. Bookends: the fallback contract
 
@@ -68,6 +87,10 @@ Ship v1 on bookends alone — nothing can go badly wrong. Add state blend for th
 2. **Don't go to black.** A dark wall reads as broken. Close to a low-energy attractor — a dim drifting field, slow noise, something still breathing.
 
 3. **Keep touch alive through the entire transition.** Even if the outro responds only faintly, someone with a hand on the wall must feel that it's still listening. The moment the wall stops responding is the moment people leave.
+
+**[prototype] All three held, and rule 2 is worth making mechanical.** Give every piece a single `energy` value supplied by the sequencer, floored well above zero — 0.15 or so — and require the piece to multiply its output by it. Then "don't go to black" is enforced by the contract instead of remembered by each author, and a piece is free to interpret the remaining headroom however it likes.
+
+Two implementation notes that made bookends feel deliberate rather than administrative. Let each piece run its bookend on **its own clock** — derive the transition length from `max(A.outro, B.intro)` and let the shorter one finish early, rather than stretching both to a shared duration. And let the bookend move the **camera** on dimensional pieces, not just the opacity: a piece that pulls back as it leaves and settles forward as it arrives reads as intentional in a way that no amount of fading does.
 
 ## 6. Example pieces
 
@@ -100,6 +123,19 @@ Proves the 3D path and, more importantly, the claim in §7 that the same touch a
 **GridWarp ↔ Particles3D is the hard bookend pair** — flat and dimensional, nothing in common, no shared state possible. Whatever makes that transition feel intentional is what the bookend design actually has to deliver.
 
 Four pieces yield twelve ordered transitions, which is enough to tell whether the sequencing idea holds up before committing to a larger library.
+
+### [prototype] What was built instead
+
+The prototype kept these four *roles* but rotated them 3D-forward, so the names above do not match the code. The structure of the test is preserved exactly — one stateless minimum-viable piece, two pieces sharing a format with deliberately mismatched timescales, and one piece that is stateful internally and declines to share:
+
+| Role above | Built as | State |
+|---|---|---|
+| GridWarp — minimum viable | **SDFField**, raymarched metaballs | none |
+| ReactionDiffusion — slow rule | **CurlFlow**, curl-noise advection | `points-v1` |
+| FluidLite — fast rule | **Orbitals**, gravitational wells | `points-v1` |
+| Particles3D — stateful, declines tier 3 | **MeshWarp**, wave-equation lattice | internal only |
+
+The hard pairs survive the substitution: **CurlFlow ↔ Orbitals** is the mismatched-timescale state blend, **SDFField ↔ MeshWarp** the bookend with nothing in common. The four-role spread is the part worth keeping; which specific pieces fill it is a matter of what the library skews toward.
 
 ## 7. Input contract
 
@@ -145,11 +181,29 @@ Budget contributors: camera exposure and readout, blob detection, transport, ren
 
 If a piece can't fit in half the frame budget, it can't participate in mixes.
 
+### [prototype] Confirmed, and it bites on the first expensive piece
+
+The half-frame rule is not conservative — it is the operative constraint, and it was violated by one of four pieces immediately. Three practical consequences:
+
+**Size pieces against the mixing budget, not against how they look solo.** A piece tuned until it looks right on its own will generally be about twice too expensive to mix. In the prototype the particle count came down by 44% for exactly this reason: at the higher count each piece was comfortable alone and the pair was not.
+
+**Measure GPU time specifically.** CPU frame time is near-zero for a renderer that only issues draw calls and will report enormous framerates while the GPU is saturated; wall-clock frame interval is pinned to vsync and tells you nothing until frames are already lost. Neither is usable as the budget number. Put real GPU time on screen against the half-frame line, and watch it during transitions.
+
+**Expect one piece to be the problem, and know which knob shortens it.** Cost was not evenly distributed — the raymarched piece was roughly three times the simulation pieces and was the only one that overran. Worth budgeting a category ceiling per piece *type* rather than one global figure, and worth requiring every expensive piece to expose a quality knob (step count, internal resolution) that the sequencer could in principle turn down during a mix.
+
+Related, and cheap to get wrong: **never put noise inside a raymarch distance field.** As a field term it costs one evaluation per march step — dozens per pixel. Moved to a normal perturbation at the hit point it costs a handful per *hit* pixel and looks the same. That single change was a 2.5× difference on transition cost.
+
 ## 11. Color
 
 Standardize on **linear float16 throughout the chain, tonemap once at the end.**
 
 The failure mode is quiet: one piece rendering in linear with HDR tonemapping, another in sRGB, and the blend develops a gamma wobble in the middle that reads as an unexplained brightness dip at exactly the moment you most want the transition to feel smooth.
+
+**[prototype] Make the single conversion structural rather than a discipline.** Requiring that pieces never render to the display — only ever into an HDR target, with one final pass owning the tonemap and the encode — costs nothing and makes the rule impossible to break by accident. Worth writing into the piece contract rather than the style guide.
+
+**[prototype] There is a second, unrelated cause of the same symptom.** On the state-blend path each piece draws only the fraction of the state its rule owns — roughly `1-m` and `m` of it — and the compositor then scales those buffers by `1-m` and `m` again. The contributions go as `(1-m)²` and `m²`, totalling 0.5 at the midpoint: the wall visibly darkens halfway through and recovers. It has nothing to do with colour management, and the fix is to divide each piece's ownership term by its own composite weight so the two halves sum to one.
+
+Worth knowing that "the transition dims in the middle" has at least two causes, because gamma is the one you will suspect first and it may not be the one you have.
 
 ## 12. Runtime options
 
@@ -200,8 +254,17 @@ Note also that parked mixes (§4) already produce unbounded variation from a fix
 
 ## 15. Open questions
 
-- State format specifics — which channels, what ranges, float16 vs float32.
-- Whether pieces declare a *compatibility class* rather than a single global state format.
+Narrowed by the prototype; see `threejs-prototype.md` §13 for the full accounting.
+
+**Partly answered**
+
+- **State format specifics** — float16 with linear filtering is right for colour and for 2D fields; anything *positional* needs float32 with nearest filtering, and interpolating it is a bug. Reserve one channel as **identity**, never blended, so an element stays the same element across a rule change. And a state format is more than a channel layout: rules sharing it must also agree on respawn/boundary behaviour, or a blend shows two populations reappearing into different volumes. Exact channels still depend on the production piece library.
+- **Compatibility class rather than one global format** — the prototype says yes. A piece can be richly stateful and still have nothing meaningful to share; forcing it to participate produces a transition that reinterprets one quantity as an unrelated one, which is noise rather than magic. Declining tier 3 has to be a first-class answer, and in any real library more pieces will decline than accept. A single global format would have been the wrong shape.
+
+**Still open**
+
 - Engagement metrics: what actually signals "the crowd is losing interest" in depth data.
 - Whether the mix parameter should ever be exposed to the audience.
 - Calibration workflow: projector-to-camera homography, and how often it drifts in a real space.
+- Library size — how many pieces before the set feels repetitive. Not answerable without an audience.
+- Whether the sequencer should be able to turn down an expensive piece's quality knob during a mix (§10), or whether pieces should simply be rejected from the library if they can't hold the half-frame budget on their own.

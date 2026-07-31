@@ -11,8 +11,18 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
+| script | |
+|---|---|
+| `npm run dev` | Vite dev server. Saving a `.glsl` file reloads. |
+| `npm run smoke` | Browser smoke test — drives both transition paths and every blend mode in real Chrome, screenshots to `/tmp/wall-shots`, prints GPU time per scenario. Needs `npm run dev` running in another shell. |
+| `npm run build` | Production bundle to `dist/`. |
+| `npm run preview` | Serve the built bundle. |
+
 Requires WebGL2 with `EXT_color_buffer_float` and `OES_texture_float_linear`.
 Both are checked at boot and fail loudly rather than silently downgrading.
+
+Vite is pinned to 6 because Vite 7+ requires Node `^20.19` and this machine is
+on 20.14. Bump both together if you upgrade Node.
 
 ---
 
@@ -31,21 +41,32 @@ Everything below exists to answer those.
 ## Controls
 
 | | |
-|---|---|
-| drag | touch the wall (multi-touch works) |
-| `space` | advance to the next piece / resume a parked mix |
-| `←` `→` | scrub the mix (parks it); hold `shift` for fine steps |
-| `p` | park / resume |
-| `esc` | cancel the transition |
-| `1`–`4` | jump straight to a piece |
-| `b` | cycle blend mode (whichever path is live) |
-| `s` | toggle tier-3 state blending |
-| `t` | timer trigger |
-| `x` | cycle synthetic touch playback |
-| `d` `h` `g` | touch overlay / HUD / GUI |
-| `r` | tear down and rebuild every piece |
+| key | action | what it actually does |
+|---|---|---|
+| drag | touch the wall | Multi-touch works — a trackpad or touchscreen gives you several contacts at once, up to 16. Each contact carries position, smoothed velocity, radius and age, and pieces read all four. A swipe is not the same input as a press-and-hold. |
+| `space` | advance / resume | From `IDLE`, starts a transition to the next piece in the registry. From `PARKED`, releases the hold and lets the mix run to completion. Does nothing mid-transition — the mix is already running. |
+| `←` `→` | scrub the mix | Steps `m` by ±0.05, or ±0.01 with `shift`. **Parks the transition automatically**, so the first arrow press freezes it and every press after that moves it by hand. This is the main tool for judging a transition; nothing else lets you sit inside one. |
+| `p` | park / resume | Freezes the mix wherever it currently is, or releases it. Only meaningful during a transition. `PARKED` is a real sequencer state, not a debug pause — the wall keeps simulating, keeps responding to touch, and holds the blended state indefinitely. |
+| `esc` | cancel | Abandons the transition and snaps back to the piece you were leaving. Note it returns to **A**, not B — it's an undo, not a skip. |
+| `1`–`4` | jump to a piece | Starts a transition to that specific piece rather than the next one in sequence. Cancels any transition already running first. Pressing the number of the piece you're already on does nothing. Use this to reach a specific pair — `1` then `2` is the state-blend pair, `3` then `4` the hard bookend pair. |
+| `b` | cycle blend mode | Steps through `lerp → additive → difference → luma-key → displace`. **Which setting it changes depends on the live path**: during a state blend it cycles `stateMode`, otherwise `mode`. The compositor keeps the two separately because displace is right for bookends and wrong for state blends, so this key deliberately won't let you cross-contaminate them. The HUD's `path` line shows which mode is in force. |
+| `s` | toggle tier-3 | Turns state blending off, forcing every pair down the bookend path — so CurlFlow ↔ Orbitals becomes an ordinary crossfade instead of a shared simulation. The single best A/B for showing what tier 3 buys you. **Takes effect on the next transition**, not the current one: the path is chosen once when a mix begins and doesn't change under it. |
+| `t` | timer trigger | Toggles unattended mode. Advances on its own at a randomised 25–55s interval (adjustable in the GUI), and only ever fires from `IDLE` — it won't interrupt a transition or steal a parked mix. Leave it on to watch the set cycle by itself. |
+| `x` | synthetic touch | Cycles `off → orbit → sweep → taps`, three scripted gesture loops. `orbit` is two contacts circling in opposite directions, `sweep` a single hand crossing and lifting, `taps` scattered discrete pokes. **Real pointer input is ignored while a pattern is running** — that's the point, since comparing two transition variants needs identical input and you cannot hand-wiggle a mouse reproducibly. |
+| `d` | touch overlay | Draws each live contact: a ring that grows with age, an amber velocity vector in the same uv/sec units the shaders receive, and the slot id. The fastest way to tell whether a piece is misreading touch or the touch data itself is wrong. |
+| `h` | HUD | Hides the readouts and the frame graph. What you want before recording or screenshotting. |
+| `g` | GUI | Shows/hides the lil-gui panel — transport, mixing, triggers, input, output, and a folder of live uniforms per piece. |
+| `r` | rebuild pieces | Disposes and re-initialises every piece, reseeding all simulation state from scratch while staying on the current piece. Use it when a simulation has drifted somewhere strange, or to re-roll the particle spawn. |
 
 Scrubbing is the point. Park a transition at `m = 0.4` and leave it there.
+
+Fastest tour of what this is actually demonstrating, from a fresh load:
+
+1. `2` — starts the CurlFlow → Orbitals state blend.
+2. `p` — park it partway. Drag on the wall while it's held; both physics respond.
+3. `esc` `s` `2` — cancel, disable tier 3, run the identical pair again as a
+   bookend crossfade. That difference is the whole argument for state blending.
+4. `s` to turn it back on.
 
 ## The pieces
 
@@ -200,11 +221,12 @@ Measured on Intel UHD 630 (integrated, ANGLE/Metal) at 1280×720:
 | SDFField ↔ MeshWarp, bookend | 11.0ms |
 
 **SDFField is the piece that fails the rule.** On its own it costs more than the
-entire mixing budget, so every transition it takes part in overruns. Two
-tunables in the GUI, in order of usefulness: `steps` (64 → 40 roughly halves it)
-and `smooth`. This is integrated graphics and any discrete GPU will be an order
-of magnitude faster, but the shape of the finding is the point — the expensive
-piece is the raymarch, and it is expensive specifically during transitions.
+entire mixing budget, so every transition it takes part in overruns. `steps` in
+the GUI is the knob to reach for first — it bounds the march directly, and the
+`gpu` readout responds live, so tune it against the 8.3ms line rather than
+guessing. This is integrated graphics and any discrete GPU will be an order of
+magnitude faster, but the shape of the finding is the point: the expensive piece
+is the raymarch, and it is expensive specifically during transitions.
 
 Two performance decisions worth knowing about, both found this way:
 
