@@ -1,0 +1,21 @@
+{
+  "name": "shader-play",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Interactive wall prototype — sequenced 3D shader pieces with a mixing contract",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "smoke": "node tools/smoke.mjs"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "lil-gui": "^0.21.0",
+    "playwright-core": "^1.62.1",
+    "vite": "^6.4.3"
+  }
+}
